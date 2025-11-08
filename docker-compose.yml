@@ -1,0 +1,64 @@
+version: '3.8'
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: event-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: event
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    networks:
+      - event-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      timeout: 20s
+      retries: 10
+
+  backend:
+    build:
+      context: ./Event-Management-System/backend
+      dockerfile: Dockerfile
+    container_name: event-backend
+    ports:
+      - "2025:2025"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/event
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: root
+      SPRING_JPA_HIBERNATE_DDL_AUTO: update
+      SPRING_JPA_DATABASE_PLATFORM: org.hibernate.dialect.MySQL8Dialect
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - event-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:2025/back2/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  frontend:
+    build:
+      context: ./Event-Management-System/frontend
+      dockerfile: Dockerfile
+    container_name: event-frontend
+    ports:
+      - "3000:8080"
+    environment:
+      REACT_APP_BACKEND_URL: "http://localhost:2025"
+    depends_on:
+      - backend
+    networks:
+      - event-network
+
+volumes:
+  mysql_data:
+
+networks:
+  event-network:
+    driver: bridge

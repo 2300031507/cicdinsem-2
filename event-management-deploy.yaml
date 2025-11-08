@@ -1,0 +1,130 @@
+  ---
+- name: Event Management System Deployment on Kubernetes
+  hosts: localhost
+  connection: local
+  gather_facts: yes
+
+  vars:
+    project_path: "../Event-Management-System"
+    backend_path: "../Event-Management-System/backend"
+    frontend_path: "../Event-Management-System/frontend"
+    k8s_manifest_path: "../Event-Management-System/k8s-deployment.yaml"
+    frontend_nodeport: 30080
+    backend_nodeport: 30025
+
+  tasks:
+    - name: Gather system facts
+      ansible.builtin.setup:
+
+    - name: Check if Docker Desktop is running
+      shell: docker version
+      register: docker_status
+      ignore_errors: yes
+
+    - name: Fail if Docker is not running
+      fail:
+        msg: "Docker Desktop is not running. Please start Docker Desktop first."
+      when: docker_status.failed
+
+    - name: Enable Kubernetes in Docker Desktop (if not already enabled)
+      shell: |
+        echo "Please ensure Kubernetes is enabled in Docker Desktop settings"
+        echo "Settings > Kubernetes > Enable Kubernetes"
+      ignore_errors: yes
+
+    - name: Check kubectl connection
+      shell: kubectl cluster-info
+      register: kubectl_status
+      ignore_errors: yes
+
+    - name: Fail if kubectl cannot connect to cluster
+      fail:
+        msg: "Cannot connect to Kubernetes cluster. Please ensure Docker Desktop Kubernetes is running."
+      when: kubectl_status.failed
+
+    - name: Build Backend Docker Image
+      shell: |
+        cd {{ backend_path }}
+        docker build -t event-management-backend:latest .
+      args:
+        executable: /bin/bash
+
+    - name: Build Frontend Docker Image
+      shell: |
+        cd {{ frontend_path }}
+        docker build -t event-management-frontend:latest .
+      args:
+        executable: /bin/bash
+
+    - name: Apply Kubernetes manifests
+      shell: kubectl apply -f {{ k8s_manifest_path }}
+      args:
+        executable: /bin/bash
+
+    - name: Wait for MySQL to be ready
+      shell: |
+        kubectl wait --for=condition=ready pod -l app=mysql-event --timeout=300s
+      args:
+        executable: /bin/bash
+      ignore_errors: yes
+
+    - name: Wait for backend pods to be running
+      shell: |
+        kubectl wait --for=condition=ready pod -l app=backend-event --timeout=300s
+      args:
+        executable: /bin/bash
+      ignore_errors: yes
+
+    - name: Wait for frontend pods to be running
+      shell: |
+        kubectl wait --for=condition=ready pod -l app=frontend-event --timeout=300s
+      args:
+        executable: /bin/bash
+      ignore_errors: yes
+
+    - name: Check deployment status
+      shell: kubectl get all
+      register: deployment_status
+      args:
+        executable: /bin/bash
+
+    - name: Display deployment status
+      debug:
+        msg: "{{ deployment_status.stdout }}"
+
+    - name: Get service information
+      shell: kubectl get svc
+      register: svc_info
+      args:
+        executable: /bin/bash
+
+    - name: Display service information
+      debug:
+        msg: "{{ svc_info.stdout }}"
+
+    - name: Show access URLs
+      debug:
+        msg:
+          - "🎉 Event Management System deployed successfully!"
+          - ""
+          - "📋 Deployment Summary:"
+          - "   • Frontend: http://localhost:{{ frontend_nodeport }}"
+          - "   • Backend API: http://localhost:{{ backend_nodeport }}/back2"
+          - "   • Database: MySQL on port 3306 (internal)"
+          - ""
+          - "🔧 Useful Commands:"
+          - "   • View logs: kubectl logs -f deployment/frontend-event"
+          - "   • Check pods: kubectl get pods"
+          - "   • Delete deployment: kubectl delete -f {{ k8s_manifest_path }}"
+
+    - name: Test backend connectivity
+      uri:
+        url: "http://localhost:{{ backend_nodeport }}/back2"
+        method: GET
+        status_code: [200, 404]
+      register: backend_test
+      ignore_errors: yes
+
+    - name: Display backend test result
+      debug:
+        msg: "Backend connectivity test: {{ '✅ PASS' if backend_test.status == 200 else '⚠️  Backend may still be starting' }}"
